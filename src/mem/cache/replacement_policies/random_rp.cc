@@ -77,13 +77,13 @@ Random::getVictim(const ReplacementCandidates& candidates) const
 
     // Visit all candidates to search for an invalid entry. If one is found,
     // its eviction is prioritized
-    for (const auto& candidate : candidates) {
-        if (!std::static_pointer_cast<RandomReplData>(
-                    candidate->replacementData)->valid) {
-            victim = candidate;
-            break;
-        }
-    }
+    //for (const auto& candidate : candidates) {
+    //    if (!std::static_pointer_cast<RandomReplData>(
+    //                candidate->replacementData)->valid) {
+    //        victim = candidate;
+    //        break;
+    //    }
+    //}
 
     return victim;
 }

@@ -45,6 +45,8 @@
 
 #include "mem/cache/base.hh"
 
+#include <algorithm>
+
 #include "base/compiler.hh"
 #include "base/logging.hh"
 #include "debug/Cache.hh"
@@ -104,6 +106,7 @@ BaseCache::BaseCache(const BaseCacheParams &p, unsigned blk_size)
       responseLatency(p.response_latency),
       sequentialAccess(p.sequential_access),
       numTarget(p.tgts_per_mshr),
+      oneMSHRPerSet(p.one_mshr_per_set),
       forwardSnoops(true),
       clusivity(p.clusivity),
       isReadOnly(p.is_read_only),
@@ -146,6 +149,62 @@ BaseCache::BaseCache(const BaseCacheParams &p, unsigned blk_size)
 BaseCache::~BaseCache()
 {
     delete tempBlock;
+}
+
+namespace
+{
+
+bool
+setVectorsOverlap(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b)
+{
+    for (const auto set : a) {
+        if (std::find(b.begin(), b.end(), set) != b.end()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // anonymous namespace
+
+bool
+BaseCache::hasConflictingSetMSHR(Addr blk_addr, bool is_secure) const
+{
+    const auto req_sets = tags->extractSetIndices({blk_addr, is_secure});
+    if (req_sets.empty()) {
+        return false;
+    }
+
+    return mshrQueue.anyAllocated(
+        [this, &req_sets](const MSHR& mshr) {
+            const auto mshr_sets =
+                tags->extractSetIndices({mshr.blkAddr, mshr.isSecure});
+            return setVectorsOverlap(req_sets, mshr_sets);
+        }
+    );
+}
+
+bool
+BaseCache::mustBlockForSetConflict(const PacketPtr pkt) const
+{
+    if (!oneMSHRPerSet || !pkt || pkt->req->isUncacheable()) {
+        return false;
+    }
+
+    if (pkt->isEviction() || pkt->cmd == MemCmd::WriteClean) {
+        return false;
+    }
+
+    const Addr blk_addr = pkt->getBlockAddr(blkSize);
+    if (inCache(blk_addr, pkt->isSecure())) {
+        return false;
+    }
+
+    if (mshrQueue.findMatch(blk_addr, pkt->isSecure())) {
+        return false;
+    }
+
+    return hasConflictingSetMSHR(blk_addr, pkt->isSecure());
 }
 
 void
@@ -654,6 +713,9 @@ BaseCache::recvTimingResp(PacketPtr pkt)
             mshrQueue.deallocate(mshr);
             if (was_full && !mshrQueue.isFull()) {
                 clearBlocked(Blocked_NoMSHRs);
+            }
+            if (isBlockedFor(Blocked_NoMSHRsBySet)) {
+                clearBlocked(Blocked_NoMSHRsBySet);
             }
 
             // Request the bus for a prefetch if this deallocation freed enough
@@ -2454,6 +2516,7 @@ BaseCache::CacheStats::regStats()
     blockedCycles.init(NUM_BLOCKED_CAUSES);
     blockedCycles
         .subname(Blocked_NoMSHRs, "no_mshrs")
+        .subname(Blocked_NoMSHRsBySet, "no_mshrs_by_set")
         .subname(Blocked_NoWBBuffers, "no_wbuffers")
         .subname(Blocked_NoTargets, "no_targets")
         ;
@@ -2462,12 +2525,14 @@ BaseCache::CacheStats::regStats()
     blockedCauses.init(NUM_BLOCKED_CAUSES);
     blockedCauses
         .subname(Blocked_NoMSHRs, "no_mshrs")
+        .subname(Blocked_NoMSHRsBySet, "no_mshrs_by_set")
         .subname(Blocked_NoWBBuffers, "no_wbuffers")
         .subname(Blocked_NoTargets, "no_targets")
         ;
 
     avgBlocked
         .subname(Blocked_NoMSHRs, "no_mshrs")
+        .subname(Blocked_NoMSHRsBySet, "no_mshrs_by_set")
         .subname(Blocked_NoWBBuffers, "no_wbuffers")
         .subname(Blocked_NoTargets, "no_targets")
         ;
@@ -2609,7 +2674,17 @@ BaseCache::CpuSidePort::tryTiming(PacketPtr pkt)
     if (cache.system->bypassCaches() || pkt->isExpressSnoop()) {
         // always let express snoop packets through even if blocked
         return true;
-    } else if (blocked || mustSendRetry) {
+    }
+
+    const bool set_conflict = cache.mustBlockForSetConflict(pkt);
+    if (cache.isBlockedFor(Blocked_NoMSHRsBySet) && !set_conflict) {
+        cache.clearBlocked(Blocked_NoMSHRsBySet);
+    }
+    if (set_conflict && !cache.isBlockedFor(Blocked_NoMSHRsBySet)) {
+        cache.setBlocked(Blocked_NoMSHRsBySet);
+    }
+
+    if (blocked || mustSendRetry) {
         // either already committed to send a retry, or blocked
         mustSendRetry = true;
         return false;

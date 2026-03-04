@@ -50,6 +50,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "base/callback.hh"
 #include "base/logging.hh"
@@ -209,6 +210,13 @@ class BaseTags : public ClockedObject
      * @return The block.
      */
     virtual ReplaceableEntry* findBlockBySetAndWay(int set, int way) const;
+
+    /**
+     * Return all set indices where the given key could map.
+     *
+     * For a regular set-associative cache this vector has a single set index.
+     */
+    std::vector<uint32_t> extractSetIndices(const CacheBlk::KeyType &key) const;
 
     /**
      * Align an address to the block size.

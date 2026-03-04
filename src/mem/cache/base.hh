@@ -120,6 +120,7 @@ class BaseCache : public ClockedObject
     {
         Blocked_NoMSHRs = MSHRQueue_MSHRs,
         Blocked_NoWBBuffers = MSHRQueue_WriteBuffer,
+        Blocked_NoMSHRsBySet,
         Blocked_NoTargets,
         NUM_BLOCKED_CAUSES
     };
@@ -422,6 +423,9 @@ class BaseCache : public ClockedObject
 
         if (wasFull && !mshrQueue.isFull()) {
             clearBlocked(Blocked_NoMSHRs);
+        }
+        if (isBlockedFor(Blocked_NoMSHRsBySet)) {
+            clearBlocked(Blocked_NoMSHRsBySet);
         }
     }
 
@@ -926,6 +930,12 @@ class BaseCache : public ClockedObject
     /** The number of targets for each MSHR. */
     const int numTarget;
 
+    /**
+     * If enabled, only one outstanding MSHR is allowed per cache set.
+     * Additional misses to different lines in the same set are retried later.
+     */
+    const bool oneMSHRPerSet;
+
     /** Do we forward snoops from mem side port through to cpu side port? */
     bool forwardSnoops;
 
@@ -1200,6 +1210,11 @@ class BaseCache : public ClockedObject
         return blocked != 0;
     }
 
+    bool isBlockedFor(BlockedCause cause) const
+    {
+        return blocked & (1 << cause);
+    }
+
     /**
      * Marks the access path of the cache as blocked for the given cause. This
      * also sets the blocked flag in the response interface.
@@ -1267,6 +1282,14 @@ class BaseCache : public ClockedObject
     bool inMissQueue(Addr addr, bool is_secure) const {
         return mshrQueue.findMatch(addr, is_secure);
     }
+
+    bool hasConflictingSetMSHR(Addr blk_addr, bool is_secure) const;
+
+    /**
+     * Check if the incoming packet should be retried due to per-set MSHR
+     * serialization (if enabled).
+     */
+    bool mustBlockForSetConflict(const PacketPtr pkt) const;
 
     void incMissCount(PacketPtr pkt)
     {

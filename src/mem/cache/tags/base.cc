@@ -45,6 +45,7 @@
 
 #include "mem/cache/tags/base.hh"
 
+#include <algorithm>
 #include <cassert>
 
 #include "base/types.hh"
@@ -76,6 +77,24 @@ ReplaceableEntry*
 BaseTags::findBlockBySetAndWay(int set, int way) const
 {
     return indexingPolicy->getEntry(set, way);
+}
+
+std::vector<uint32_t>
+BaseTags::extractSetIndices(const CacheBlk::KeyType &key) const
+{
+    const std::vector<ReplaceableEntry*> entries =
+        indexingPolicy->getPossibleEntries(key);
+
+    std::vector<uint32_t> sets;
+    sets.reserve(entries.size());
+    for (const auto& location : entries) {
+        const uint32_t set = location->getSet();
+        if (std::find(sets.begin(), sets.end(), set) == sets.end()) {
+            sets.push_back(set);
+        }
+    }
+
+    return sets;
 }
 
 CacheBlk*

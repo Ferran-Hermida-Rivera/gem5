@@ -215,6 +215,26 @@ class Queue : public Drainable, public Named
     }
 
     /**
+     * Returns true if any allocated entry satisfies the predicate.
+     *
+     * @param pred Predicate applied to each allocated entry.
+     * @param ignore_uncacheable Ignore entries serving uncacheable accesses.
+     */
+    template <typename Pred>
+    bool anyAllocated(Pred pred, bool ignore_uncacheable = true) const
+    {
+        for (const auto& entry : allocatedList) {
+            if (ignore_uncacheable && entry->isUncacheable()) {
+                continue;
+            }
+            if (pred(*entry)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Returns the WriteQueueEntry at the head of the readyList.
      * @return The next request to service.
      */

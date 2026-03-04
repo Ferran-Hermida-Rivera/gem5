@@ -1485,6 +1485,9 @@ Cache::sendMSHRQueuePacket(MSHR* mshr)
                 // mshr when all had previously been utilized
                 clearBlocked(Blocked_NoMSHRs);
             }
+            if (isBlockedFor(Blocked_NoMSHRsBySet)) {
+                clearBlocked(Blocked_NoMSHRsBySet);
+            }
 
             // given that no response is expected, delete Request and Packet
             delete tgt_pkt;

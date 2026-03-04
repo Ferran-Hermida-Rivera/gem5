@@ -99,6 +99,10 @@ class BaseCache(ClockedObject):
     )
 
     mshrs = Param.Unsigned("Number of MSHRs (max outstanding requests)")
+    one_mshr_per_set = Param.Bool(
+        False,
+        "Allow at most one outstanding MSHR per cache set",
+    )
     demand_mshr_reserve = Param.Unsigned(1, "MSHRs reserved for demand access")
     tgts_per_mshr = Param.Unsigned("Max number of accesses per MSHR")
     write_buffers = Param.Unsigned(8, "Number of write buffers")
